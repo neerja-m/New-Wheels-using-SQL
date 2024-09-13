@@ -1,0 +1,288 @@
+/*
+
+-----------------------------------------------------------------------------------------------------------------------------------
+													    Guidelines
+-----------------------------------------------------------------------------------------------------------------------------------
+
+The provided document is a guide for the project. Follow the instructions and take the necessary steps to finish
+the project in the SQL file			
+
+-----------------------------------------------------------------------------------------------------------------------------------
+                                                         Queries
+                                               
+-----------------------------------------------------------------------------------------------------------------------------------*/
+ 
+
+
+/*-- QUESTIONS RELATED TO CUSTOMERS
+     [Q1] What is the distribution of customers across states?
+     For each state, count the number of customers.*/
+
+USE VEHDB;
+
+SELECT 
+	STATE as STATE,
+    COUNT(CUSTOMER_ID) AS CUSTOMER_COUNT
+FROM 
+	CUSTOMER_T C
+GROUP BY 
+	STATE
+ORDER BY 
+	CUSTOMER_COUNT DESC;
+;
+
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/* [Q2] What is the average rating in each quarter?
+-- Very Bad is 1, Bad is 2, Okay is 3, Good is 4, Very Good is 5.
+
+ Use a common table expression and in that CTE, assign numbers to the different customer ratings. 
+ Now average the feedback for each quarter. 
+
+*/
+
+WITH RATING_CTE AS (
+SELECT 
+	QUARTER_NUMBER, CUSTOMER_FEEDBACK, CASE 
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "VERY BAD" THEN 1
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "BAD" THEN 2
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "OKAY" THEN 3
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "GOOD" THEN 4
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "VERY GOOD" THEN 5
+		ELSE 0
+	END AS RATING
+    
+FROM 
+	ORDER_T 
+)
+
+SELECT 
+	QUARTER_NUMBER AS QTR, AVG(RATING) AS AVG_RATING
+FROM 
+	RATING_CTE
+GROUP BY 
+	QUARTER_NUMBER
+ORDER BY
+	QUARTER_NUMBER ASC
+;
+
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/* [Q3] Are customers getting more dissatisfied over time?
+
+        Need the percentage of different types of customer feedback in each quarter. Use a common table expression and
+	  determine the number of customer feedback in each category as well as the total number of customer feedback in each quarter.
+	  Now use that common table expression to find out the percentage of different types of customer feedback in each quarter.
+      Eg: (total number of very good feedback/total customer feedback)* 100 gives you the percentage of very good feedback.
+      
+*/
+      
+WITH CTE_RATINGS AS
+(
+	SELECT QUARTER_NUMBER, CUSTOMER_FEEDBACK,
+		COUNT(*) OVER (PARTITION BY QUARTER_NUMBER, CUSTOMER_FEEDBACK) AS COUNT_FEEDBACK_BY_QUARTER,
+		COUNT(*) OVER (PARTITION BY QUARTER_NUMBER) AS COUNT_TOTAL_RATINGS_BY_QUARTER,
+        CASE 
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "VERY BAD" THEN 1
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "BAD" THEN 2
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "OKAY" THEN 3
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "GOOD" THEN 4
+		WHEN UPPER(CUSTOMER_FEEDBACK) = "VERY GOOD" THEN 5
+		ELSE 0 END AS RATING_BY_NUMBER
+	FROM ORDER_T
+) 
+SELECT QUARTER_NUMBER AS QTR, CUSTOMER_FEEDBACK AS FEEDBACK, COUNT_FEEDBACK_BY_QUARTER/COUNT_TOTAL_RATINGS_BY_QUARTER* 100 AS PERCENTAGE
+FROM CTE_RATINGS
+GROUP BY QUARTER_NUMBER, CUSTOMER_FEEDBACK
+ORDER BY RATING_BY_NUMBER DESC
+;
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/*[Q4] Which are the top 5 vehicle makers preferred by the customer.
+
+ 
+
+For each vehicle make what is the count of the customers.*/
+SELECT 
+	P.VEHICLE_MAKER, COUNT(O.CUSTOMER_ID) AS COUNT
+FROM
+	PRODUCT_T P
+INNER JOIN  
+	ORDER_T O
+ON
+	P.PRODUCT_ID = O.PRODUCT_ID
+GROUP BY P.VEHICLE_MAKER
+ORDER BY 2 DESC
+LIMIT 5
+;
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/*[Q5] What is the most preferred vehicle make in each state?
+
+Use the window function RANK() to rank based on the count of customers for each state and vehicle maker. 
+After ranking, take the vehicle maker whose rank is 1.*/
+
+
+WITH CTE_COUNT_RESULTS AS 
+(SELECT	
+    C.STATE,
+    P.VEHICLE_MAKER,
+	COUNT(VEHICLE_MAKER) AS COUNT_VEHICLES_BY_STATE
+FROM 
+	PRODUCT_T P INNER JOIN ORDER_T O ON P.PRODUCT_ID = O.PRODUCT_ID 
+	INNER JOIN CUSTOMER_T C ON O.CUSTOMER_ID = C.CUSTOMER_ID
+GROUP BY C.STATE, P.VEHICLE_MAKER
+ORDER BY COUNT_VEHICLES_BY_STATE DESC
+)
+
+SELECT STATE, VEHICLE_MAKER,COUNT_VEHICLES_BY_STATE 
+FROM 
+	(SELECT  STATE, VEHICLE_MAKER, COUNT_VEHICLES_BY_STATE,
+	RANK() OVER  (PARTITION BY STATE ORDER BY COUNT_VEHICLES_BY_STATE DESC)  AS RANK_VEHICLES_BY_STATE 
+	FROM CTE_COUNT_RESULTS) AS RANKED_RESULT
+WHERE RANK_VEHICLES_BY_STATE = 1
+ORDER BY STATE
+;
+
+-- for further analysis we can group by vehicle make? to make a clearer picture out of it.
+WITH CTE_COUNT_RESULTS AS 
+	(SELECT	
+    C.STATE,
+    P.VEHICLE_MAKER,
+	COUNT(VEHICLE_MAKER) AS COUNT_VEHICLES_BY_STATE
+FROM 
+	PRODUCT_T P INNER JOIN ORDER_T O ON P.PRODUCT_ID = O.PRODUCT_ID 
+	INNER JOIN CUSTOMER_T C ON O.CUSTOMER_ID = C.CUSTOMER_ID
+GROUP BY 
+	C.STATE, P.VEHICLE_MAKER
+ORDER BY 
+	COUNT_VEHICLES_BY_STATE DESC
+)
+
+SELECT STATE, VEHICLE_MAKER, sum(COUNT_VEHICLES_BY_STATE) as total_count
+FROM 
+	(SELECT  STATE,
+    VEHICLE_MAKER, COUNT_VEHICLES_BY_STATE,
+	RANK() OVER  (PARTITION BY STATE ORDER BY COUNT_VEHICLES_BY_STATE DESC)  AS RANK_VEHICLES_BY_STATE 
+	FROM CTE_COUNT_RESULTS) AS RANKED_RESULT
+WHERE 
+	RANK_VEHICLES_BY_STATE = 1
+GROUP BY
+	VEHICLE_MAKER
+ORDER BY 
+	TOTAL_COUNT DESC
+;
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/*QUESTIONS RELATED TO REVENUE and ORDERS 
+
+-- [Q6] What is the trend of number of orders by quarters?
+
+Count the number of orders for each quarter.*/
+
+SELECT 
+	QUARTER_NUMBER, 
+    COUNT(ORDER_ID) AS NUMBER_OF_ORDERS,
+    COUNT(ORDER_ID) - LAG(COUNT(ORDER_ID)) OVER(ORDER BY QUARTER_NUMBER) as DIFF_IN_ORDER_COUNT
+FROM ORDER_T 
+	GROUP BY QUARTER_NUMBER
+ORDER BY 
+	QUARTER_NUMBER
+;
+
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/* [Q7] What is the quarter over quarter % change in revenue? 
+
+     Quarter over Quarter percentage change in revenue means what is the change in revenue from the subsequent quarter to the previous quarter in percentage.
+      To calculate you need to use the common table expression to find out the sum of revenue for each quarter.
+      Then use that CTE along with the LAG function to calculate the QoQ percentage change in revenue.
+*/     
+
+WITH CTE_REVENUE AS 
+(
+SELECT 
+	QUARTER_NUMBER AS QTR, 
+    SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY) AS TOTAL_REV_BY_QTR,
+    (SELECT SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY) AS TOTAL_REVENUE FROM ORDER_T) AS TOTAL_REV, 
+    SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY)/(SELECT SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY) AS TOTAL_REVENUE FROM ORDER_T) * 100 AS PERCENT_TOTAL_REV_PER_QTR 
+FROM ORDER_T
+GROUP BY QUARTER_NUMBER
+ORDER BY QUARTER_NUMBER
+)
+
+SELECT *,
+     LAG(PERCENT_TOTAL_REV_PER_QTR) OVER(ORDER BY QTR) as PREVIOUS_REVENUE,
+     ROUND(PERCENT_TOTAL_REV_PER_QTR - LAG(PERCENT_TOTAL_REV_PER_QTR) OVER(ORDER BY QTR),2) as DIFFERENCE_IN_REVENUE
+FROM 
+	CTE_REVENUE 
+	ORDER BY QTR 
+; 
+      
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/* [Q8] What is the trend of revenue and orders by quarters?
+
+Find out the sum of revenue and count the number of orders for each quarter.*/
+
+SELECT 
+	QUARTER_NUMBER, 
+    	ROUND(SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY),2) AS REVENUE,
+    	COUNT(ORDER_ID) AS NUMBER_OF_ORDERS,
+	COUNT(ORDER_ID) - LAG(COUNT(ORDER_ID)) OVER(ORDER BY QUARTER_NUMBER) as DIFF_IN_ORDER_COUNT,
+	ROUND(SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY) - LAG(SUM((VEHICLE_PRICE - ((DISCOUNT/100)*VEHICLE_PRICE)) * QUANTITY) ) OVER(ORDER BY QUARTER_NUMBER),2) as DIFF_IN_REVENUE
+FROM 
+	ORDER_T O
+GROUP BY 
+	QUARTER_NUMBER
+ORDER BY 
+	QUARTER_NUMBER
+;
+
+
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/* QUESTIONS RELATED TO SHIPPING 
+    [Q9] What is the average discount offered for different types of credit cards?
+
+Find out the average of discount for each credit card type.*/
+
+SELECT 	
+	C.CREDIT_CARD_TYPE AS CREDIT_CARD, ROUND(AVG(O.DISCOUNT)*100,2) AS AVG_DISCOUNT
+FROM 
+	CUSTOMER_T C INNER JOIN ORDER_T O ON C.CUSTOMER_ID = O.CUSTOMER_ID
+GROUP BY 
+	C.CREDIT_CARD_TYPE
+ORDER BY
+	C.CREDIT_CARD_TYPE
+;
+
+
+-- ---------------------------------------------------------------------------------------------------------------------------------
+
+/* [Q10] What is the average time taken to ship the placed orders for each quarters?
+Use the dateiff function to find the difference between the ship date and the order date.
+*/
+SELECT 
+	QUARTER_NUMBER AS QTR, 
+	ROUND(AVG(DATEDIFF(SHIP_DATE, ORDER_DATE)),2) AS AVG_SHIP_TIME
+FROM 
+	ORDER_T
+GROUP BY 
+	QUARTER_NUMBER
+ORDER BY 
+	QUARTER_NUMBER    
+;
+
+-- --------------------------------------------------------Done----------------------------------------------------------------------
+-- ----------------------------------------------------------------------------------------------------------------------------------
+
+
+
